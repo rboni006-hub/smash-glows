@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mario vs Sonic - Platform Fighter</title>
+    <style>
+        body {
+            margin: 0;
+            background: #f0f0f0;
+            color: #111;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #ui {
+            display: flex;
+            justify-content: space-around;
+            width: 800px;
+            margin-bottom: 10px;
+        }
+        .player-card {
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-align: center;
+            min-width: 180px;
+            color: white;
+        }
+        #mario-card { background: #e52521; }
+        #sonic-card { background: #0054a6; }
+        .percent {
+            font-size: 32px;
+            font-weight: bold;
+            display: block;
+        }
+        .lives {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 2px 0;
+        }
+        .controls {
+            font-size: 11px;
+            margin-top: 5px;
+            opacity: 0.9;
+        }
+        canvas {
+            background: #ffffff;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border: 4px solid #000000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div id="mario-card" class="player-card">
+            <h2>MARIO</h2>
+            <div id="mario-lives" class="lives">❤❤❤</div>
+            <span id="mario-pct" class="percent">0%</span>
+            <div class="controls">Move: WASD (S to drop) | Punch: R | Specials: E</div>
+        </div>
+        <div id="sonic-card" class="player-card">
+            <h2>SONIC</h2>
+            <div id="sonic-lives" class="lives">❤❤❤</div>
+            <span id="sonic-pct" class="percent">0%</span>
+            <div class="controls">Move: Arrows (Down to drop) | Punch: M | Specials: N</div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // Physics constants
+        const GRAVITY = 0.35;
+        const FRICTION = 0.85;
+
+        // Stage Layout (Battlefield - All Solid Black)
+        const stage = {
+            main: { x: 150, y: 350, w: 500, h: 20, isMain: true },
+            platL: { x: 200, y: 260, w: 120, h: 12, isMain: false },
+            platR: { x: 480, y: 260, w: 120, h: 12, isMain: false },
+            platM: { x: 340, y: 180, w: 120, h: 12, isMain: false }
+        };
+
+        // Keyboard State
+        const keys = {};
+        window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+        class Fighter {
+            constructor(name, x, y, color) {
+                this.name = name;
+                this.startX = x;
+                this.startY = y;
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.w = 30;
+                this.h = 40;
+                this.color = color;
+                this.percent = 0;
+                this.lives = 3;
+                this.facing = name === "Mario" ? 1 : -1;
+                this.isGrounded = false;
+                
+                // Combat states
+                this.hitStun = 0;
+                this.attackCooldown = 0;
+                this.actionState = "idle"; // idle, punch, special, sideSpecial, upSpecial, charging, spinDash, homing
+                this.stateTimer = 0;
+                
+                // Character specific values
+                this.runSpeed = name === "Sonic" ? 5.8 : 3.8;
+                
+                // Special Mechanics
+                this.fireballs = [];
+                this.spinDashCharge = 0;
+                this.spinDashMaxCharge = 60;
+                this.sonicColor = color;
+                this.upSpecialUsed = false; 
+                this.platformDropTimer = 0; // Lock collision briefly when dropping down
+            }
+
+            resetPosition() {
+                this.x = this.startX;
+                this.y = this.startY;
+                this.vx = 0;
+                this.vy = 0;
+                this.percent = 0;
+                this.hitStun = 0;
+                this.attackCooldown = 0;
+                this.actionState = "idle";
+                this.stateTimer = 0;
+                this.spinDashCharge = 0;
+                this.upSpecialUsed = false;
+                this.platformDropTimer = 0;
+                this.sonicColor = this.color;
+                this.updateUI();
+            }
+
+            updateUI() {
+                document.getElementById(`${this.name.toLowerCase()}-pct`).innerText = `${this.percent}%`;
+                let hearts = "";
+                for(let i=0; i<3; i++) {
+                    hearts += i < this.lives ? "❤" : "🖤";
+                }
+                document.getElementById(`${this.name.toLowerCase()}-lives`).innerText = hearts;
+            }
+
+            update(inputs, opponent) {
+                // Cooldowns and Hitstun updates
+                if (this.hitStun > 0) this.hitStun--;
+                if (this.attackCooldown > 0) this.attackCooldown--;
+                if (this.platformDropTimer > 0) this.platformDropTimer--;
+                
+                if (this.isGrounded) {
+                    this.upSpecialUsed = false; 
+                    // FIX: Force action state back to idle immediately when hitting ground to break lockout bugs
+                    if (this.actionState === "upSpecial") {
+                        this.actionState = "idle";
+                    }
+                }
+                
+                if (this.stateTimer > 0) {
+                    this.stateTimer--;
+                    if (this.stateTimer === 0 && (this.actionState === "punch" || this.actionState === "sideSpecial" || this.actionState === "special")) {
+                        this.actionState = "idle";
+                    }
+                }
+
+                // Control Logic 
+                if (this.hitStun <= 0) {
+                    
+                    // Handle Platform Dropping Mechanic
+                    if (inputs.down && this.isGrounded && this.platformDropTimer === 0) {
+                        this.platformDropTimer = 15; // Ignore platform checks for 15 frames
+                        this.y += 5; // Nudge downward out of grounding range
+                        this.isGrounded = false;
+                    }
+
+                    // Handle Sonic's Spin Dash Charging Loop
+                    if (this.name === "Sonic" && this.actionState === "charging") {
+                        this.vx *= 0.5;
+                        if (inputs.special) {
+                            if (this.spinDashCharge < this.spinDashMaxCharge) {
+                                this.spinDashCharge++;
+                            }
+                            if (this.spinDashCharge >= this.spinDashMaxCharge) {
+                                this.sonicColor = "#ffd700";
+                            }
+                        } else {
+                            this.actionState = "spinDash";
+                            let chargeRatio = this.spinDashCharge / this.spinDashMaxCharge;
+                            let dashSpeed = 3.6 + (chargeRatio * 6.0); 
+                            this.vx = this.facing * dashSpeed;
+                            this.stateTimer = 25 + (chargeRatio * 15);
+                        }
+                    }
+
+                    // Standard Movement (Allowed during drift/Up-Special fall too)
+                    if (this.actionState !== "charging" && this.actionState !== "spinDash" && this.actionState !== "homing") {
+                        if (inputs.left) {
+                            this.vx = -this.runSpeed;
+                            this.facing = -1;
+                        } else if (inputs.right) {
+                            this.vx = this.runSpeed;
+                            this.facing = 1;
+                        } else {
+                            this.vx *= FRICTION;
+                        }
+
+                        if (inputs.jump && this.isGrounded) {
+                            this.vy = -10;
+                            this.isGrounded = false;
+                        }
+
+                        // Trigger Attacks
+                        if (this.attackCooldown === 0 && this.actionState === "idle") {
+                            if (inputs.punch) {
+                                this.usePunch(opponent);
+                            } else if (inputs.special) {
+                                this.useSpecial(inputs, opponent);
+                            }
+                        }
+                    }
+
+                    // Sonic's Active Spin Dash behavior
+                    if (this.name === "Sonic" && this.actionState === "spinDash") {
+                        let chargeRatio = this.spinDashCharge / this.spinDashMaxCharge;
+                        let dashSpeed = 3.6 + (chargeRatio * 6.0);
+                        this.vx = this.facing * dashSpeed;
+
+                        let hitbox = { x: this.x - 5, y: this.y - 5, w: this.w + 10, h: this.h + 10 };
+                        if (this.checkHitbox(hitbox, opponent)) {
+                            let dmg = 4 + Math.floor(chargeRatio * 5);
+                            let kbX = 2.0 + (chargeRatio * 2.0);
+                            opponent.takeDamage(dmg, kbX * this.facing, -3);
+                            
+                            this.actionState = "idle";
+                            this.sonicColor = this.color; 
+                            this.vy = -6; 
+                            this.vx = -this.facing * 2;
+                            this.attackCooldown = 20;
+                        }
+
+                        if (this.stateTimer <= 0) {
+                            this.actionState = "idle";
+                            this.sonicColor = this.color; 
+                            this.attackCooldown = 15;
+                        }
+                    }
+
+                    // Sonic's Active Homing Attack
+                    if (this.name === "Sonic" && this.actionState === "homing") {
+                        let dx = (opponent.x + opponent.w/2) - (this.x + this.w/2);
+                        let dy = (opponent.y + opponent.h/2) - (this.y + this.h/2);
+                        let dist = Math.sqrt(dx*dx + dy*dy);
+                        
+                        if (dist > 5) {
+                            this.x += (dx / dist) * 11;
+                            this.y += (dy / dist) * 11;
+                            
+                            let hitbox = { x: this.x - 8, y: this.y - 8, w: this.w + 16, h: this.h + 16 };
+                            if (this.checkHitbox(hitbox, opponent)) {
+                                opponent.takeDamage(9, (dx > 0 ? 3.5 : -3.5), -4.5);
+                                this.actionState = "idle";
+                                this.vy = -7; 
+                                this.vx = (dx > 0 ? -3 : 3);
+                                this.attackCooldown = 25;
+                            }
+                        }
+                        
+                        if (this.stateTimer <= 0) {
+                            this.actionState = "idle";
+                            this.attackCooldown = 20;
+                        }
+                    }
+
+                    // Mario's Active Cape Spin
+                    if (this.name === "Mario" && this.actionState === "sideSpecial") {
+                        let hitbox = {
+                            x: this.facing === 1 ? this.x + this.w : this.x - 55,
+                            y: this.y - 5,
+                            w: 55,
+                            h: this.h + 10
+                        };
+                        if (this.checkHitbox(hitbox, opponent)) {
+                            opponent.facing = -opponent.facing;
+                            opponent.takeDamage(9, this.facing * 3.5, -2);
+                            this.actionState = "idle";
+                            this.attackCooldown = 30;
+                        }
+                    }
+
+                    // Mario's Super Jump Punch Active Hitbox Check
+                    if (this.name === "Mario" && this.actionState === "upSpecial") {
+                        let hitbox = { x: this.x - 5, y: this.y - 15, w: this.w + 10, h: 25 };
+                        if (this.checkHitbox(hitbox, opponent)) {
+                            opponent.takeDamage(8, this.facing * 2.5, -5);
+                        }
+                    }
+
+                } else {
+                    this.vx *= 0.97;
+                    this.sonicColor = this.color; 
+                }
+
+                // Apply Physics (Skip normal application during tracking phases)
+                if (this.actionState !== "homing") {
+                    this.vy += GRAVITY;
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.checkCollisions();
+                }
+
+                // Fireball mechanics processing loop (Mario only)
+                if (this.name === "Mario") {
+                    for (let i = this.fireballs.length - 1; i >= 0; i--) {
+                        let f = this.fireballs[i];
+                        f.x += f.vx;
+                        f.vy += GRAVITY;
+                        f.y += f.vy;
+
+                        const checkFireballPlat = (p) => {
+                            if (f.x + f.w > p.x && f.x < p.x + p.w) {
+                                if (f.y + f.h >= p.y && f.y + f.h - f.vy <= p.y + 10 && f.vy > 0) {
+                                    f.y = p.y - f.h;
+                                    f.vy = -4.5; 
+                                }
+                            }
+                        };
+                        checkFireballPlat(stage.main);
+                        checkFireballPlat(stage.platL);
+                        checkFireballPlat(stage.platR);
+                        checkFireballPlat(stage.platM);
+
+                        if (this.checkHitbox(f, opponent)) {
+                            opponent.takeDamage(4, f.vx > 0 ? 1.5 : -1.5, -1.5);
+                            this.fireballs.splice(i, 1);
+                            continue;
+                        }
+
+                        f.timer--;
+                        if (f.timer <= 0 || f.x < -50 || f.x > canvas.width + 50 || f.y > canvas.height + 50) {
+                            this.fireballs.splice(i, 1);
+                        }
+                    }
+                }
+
+                // Screen Boundary Death checks
+                if (this.x < -80 || this.x > canvas.width + 80 || this.y < -80 || this.y > canvas.height + 80) {
+                    this.lives--;
+                    if (this.lives <= 0) {
+                        alert(`${opponent.name} Wins! Game Over.`);
+                        location.reload();
+                    } else {
+                        this.resetPosition();
+                    }
+                }
+            }
+
+            checkCollisions() {
+                this.isGrounded = false;
+                const footY = this.y + this.h;
+                const prevFootY = footY - this.vy;
+
+                const checkPlat = (p) => {
+                    // Skip floating platforms if dropping down through them
+                    if (!p.isMain && this.platformDropTimer > 0) return;
+
+                    if (this.x + this.w > p.x && this.x < p.x + p.w) {
+                        if (prevFootY <= p.y && footY >= p.y && this.vy >= 0) {
+                            this.y = p.y - this.h;
+                            this.vy = 0;
+                            this.isGrounded = true;
+                        }
+                    }
+                };
+
+                checkPlat(stage.main);
+                checkPlat(stage.platL);
+                checkPlat(stage.platR);
+                checkPlat(stage.platM);
+            }
+
+            usePunch(opponent) {
+                this.actionState = "punch";
+                this.stateTimer = 12;
+                this.attackCooldown = 20;
+
+                let hitbox = {
+                    x: this.facing === 1 ? this.x + this.w : this.x - 22,
+                    y: this.y + 10,
+                    w: 22,
+                    h: 20
+                };
+
+                if (this.checkHitbox(hitbox, opponent)) {
+                    let dmg = this.name === "Mario" ? 6 : 5;
+                    let kbX = this.name === "Mario" ? 2.5 : 2;
+                    opponent.takeDamage(dmg, kbX * this.facing, -2.5);
+                }
+            }
+
+            useSpecial(inputs, opponent) {
+                if (this.name === "Mario") {
+                    if (inputs.jump && !this.upSpecialUsed) {
+                        // UP SPECIAL: Super Jump Punch
+                        this.actionState = "upSpecial";
+                        this.vy = -12;
+                        this.vx = this.facing * 3;
+                        this.upSpecialUsed = true;
+                        this.attackCooldown = 40;
+                    } else if (inputs.left || inputs.right) {
+                        // SIDE SPECIAL: Cape
+                        this.actionState = "sideSpecial";
+                        this.stateTimer = 18;
+                        this.attackCooldown = 25;
+                        this.vx = this.facing * 2.5; 
+                    } else {
+                        // NEUTRAL SPECIAL: Fireball
+                        this.actionState = "special";
+                        this.stateTimer = 15;
+                        this.attackCooldown = 30;
+
+                        this.fireballs.push({
+                            x: this.facing === 1 ? this.x + this.w : this.x - 12,
+                            y: this.y + 12,
+                            w: 12,
+                            h: 12,
+                            vx: this.facing * 5.5,
+                            vy: 2,
+                            timer: 90
+                        });
+                    }
+                } else {
+                    if (inputs.jump && !this.upSpecialUsed) {
+                        // UP SPECIAL: Sonic Spring Jump
+                        this.actionState = "upSpecial";
+                        this.vy = -15; 
+                        this.vx = (inputs.left ? -2 : inputs.right ? 2 : 0);
+                        this.upSpecialUsed = true;
+                        this.attackCooldown = 45;
+                        
+                        game.spawnSpring(this.x + this.w/2 - 10, this.y + this.h);
+                    } else if (inputs.left || inputs.right) {
+                        // SIDE SPECIAL: Spin Dash
+                        this.actionState = "charging";
+                        this.spinDashCharge = 0;
+                        this.sonicColor = this.color;
+                    } else {
+                        // NEUTRAL SPECIAL: Homing Attack
+                        this.actionState = "homing";
+                        this.stateTimer = 45; 
+                        this.vy = -3; 
+                        this.vx = 0;
+                    }
+                }
+            }
+
+            checkHitbox(hb, target) {
+                return hb.x < target.x + target.w &&
+                       hb.x + hb.w > target.x &&
+                       hb.y < target.y + target.h &&
+                       hb.y + hb.h > target.y;
+            }
+
+            takeDamage(amount, kbX, kbY) {
+                if (this.name === "Sonic" && this.actionState === "spinDash") return;
+
+                this.percent += amount;
+                this.updateUI();
+
+                // KNOCKBACK REDUCED BY 50%: Scaling multiplier factor cut down from 0.65 to 0.325
+                const multiplier = 1 + (this.percent / 100) * 0.325;
+                this.vx = kbX * multiplier;
+                this.vy = kbY * multiplier;
+                this.hitStun = Math.floor(12 * multiplier);
+                
+                this.actionState = "idle";
+                this.sonicColor = this.color;
+            }
+
+            draw() {
+                // Draw Mario Fireballs
+                if (this.name === "Mario") {
+                    ctx.fillStyle = "#ff4500";
+                    this.fireballs.forEach(f => {
+                        ctx.beginPath();
+                        ctx.arc(f.x + f.w/2, f.y + f.h/2, f.w/2, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+                }
+
+                // Draw Characters
+                let currentRenderColor = this.name === "Sonic" ? this.sonicColor : this.color;
+                ctx.fillStyle = currentRenderColor;
+
+                if (this.name === "Sonic" && (this.actionState === "charging" || this.actionState === "spinDash" || this.actionState === "homing")) {
+                    ctx.beginPath();
+                    let radiusPulse = (this.actionState === "charging") ? (this.w/2 + (this.spinDashCharge/this.spinDashMaxCharge) * 4) : (this.w/2 + 2);
+                    ctx.arc(this.x + this.w/2, this.y + this.h/2, radiusPulse, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    if (this.spinDashCharge >= this.spinDashMaxCharge) {
+                        ctx.fillStyle = "#ffffff";
+                        ctx.fillRect(this.x + Math.random()*this.w, this.y + Math.random()*this.h, 4, 4);
+                    }
+                } else {
+                    ctx.fillRect(this.x, this.y, this.w, this.h);
+                }
+
+                // Eyes visual tracking
+                if (this.actionState !== "charging" && this.actionState !== "spinDash" && this.actionState !== "homing") {
+                    ctx.fillStyle = "#ffffff";
+                    let eyeOffset = this.facing === 1 ? this.w - 9 : 4;
+                    ctx.fillRect(this.x + eyeOffset, this.y + 6, 5, 5);
+                }
+
+                // Punch indicator box
+                if (this.actionState === "punch") {
+                    ctx.fillStyle = "#ffea00";
+                    let punchX = this.facing === 1 ? this.x + this.w : this.x - 12;
+                    ctx.fillRect(punchX, this.y + 12, 12, 10);
+                }
+
+                // Mario Cape visual overlay
+                if (this.name === "Mario" && this.actionState === "sideSpecial") {
+                    ctx.fillStyle = "#ffcc00"; 
+                    let capeX = this.facing === 1 ? this.x + this.w : this.x - 55;
+                    ctx.fillRect(capeX, this.y - 2, 55, this.h + 4);
+                }
+
+                // Mario Super Jump Punch effect box
+                if (this.name === "Mario" && this.actionState === "upSpecial") {
+                    ctx.fillStyle = "#ffcc00";
+                    ctx.fillRect(this.x - 2, this.y - 12, this.w + 4, 12);
+                }
+            }
+        }
+
+        // GameManager Object
+        const game = {
+            mario: new Fighter("Mario", 240, 220, "#e52521"),
+            sonic: new Fighter("Sonic", 520, 220, "#0054a6"),
+            spring: null,
+
+            init() {
+                this.mario.updateUI();
+                this.sonic.updateUI();
+                this.loop();
+            },
+
+            spawnSpring(x, y) {
+                this.spring = { x: x, y: y, w: 20, h: 10, timer: 30 };
+            },
+
+            renderStage() {
+                ctx.fillStyle = "#000000"; 
+                ctx.fillRect(stage.main.x, stage.main.y, stage.main.w, stage.main.h);
+                ctx.fillRect(stage.platL.x, stage.platL.y, stage.platL.w, stage.platL.h);
+                ctx.fillRect(stage.platR.x, stage.platR.y, stage.platR.w, stage.platR.h);
+                ctx.fillRect(stage.platM.x, stage.platM.y, stage.platM.w, stage.platM.h);
+
+                // Render Sonic's recovery spring if active
+                if (this.spring) {
+                    ctx.fillStyle = "#ff0000";
+                    ctx.fillRect(this.spring.x, this.spring.y, this.spring.w, this.spring.h);
+                    this.spring.timer--;
+                    if (this.spring.timer <= 0) this.spring = null;
+                }
+            },
+
+            loop() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                const marioInputs = {
+                    left: keys['a'],
+                    right: keys['d'],
+                    jump: keys['w'],
+                    down: keys['s'],
+                    punch: keys['r'],
+                    special: keys['e']
+                };
+
+                const sonicInputs = {
+                    left: keys['arrowleft'],
+                    right: keys['arrowright'],
+                    jump: keys['arrowup'],
+                    down: keys['arrowdown'],
+                    punch: keys['m'],
+                    special: keys['n']
+                };
+
+                this.mario.update(marioInputs, this.sonic);
+                this.sonic.update(sonicInputs, this.mario);
+
+                this.renderStage();
+                this.mario.draw();
+                this.sonic.draw();
+
+                requestAnimationFrame(() => this.loop());
+            }
+        };
+
+        game.init();
+    </script>
+</body>
+</html>
