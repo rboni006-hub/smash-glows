@@ -258,25 +258,43 @@
                         }
                     }
 
-                    // Sonic's Active Homing Attack
-                    if (this.name === "Sonic" && this.actionState === "homing") {
-                        let dx = (opponent.x + opponent.w/2) - (this.x + this.w/2);
-                        let dy = (opponent.y + opponent.h/2) - (this.y + this.h/2);
-                        let dist = Math.sqrt(dx*dx + dy*dy);
-                        
-                        if (dist > 5) {
-                            this.x += (dx / dist) * 11;
-                            this.y += (dy / dist) * 11;
-                            
-                            let hitbox = { x: this.x - 8, y: this.y - 8, w: this.w + 16, h: this.h + 16 };
-                            if (this.checkHitbox(hitbox, opponent)) {
-                                opponent.takeDamage(2, (dx > 0 ? 3.5 : -3.5), -4.5);
-                                this.actionState = "idle";
-                                this.vy = -7; 
-                                this.vx = (dx > 0 ? -3 : 3);
-                                this.attackCooldown = 40;
-                            }
-                        }
+// Sonic's Active Homing Attack
+if (this.name === "Sonic" && this.actionState === "homing") {
+    let dx = (opponent.x + opponent.w/2) - (this.x + this.w/2);
+    let dy = (opponent.y + opponent.h/2) - (this.y + this.h/2);
+    let dist = Math.sqrt(dx*dx + dy*dy);
+
+    // Define the maximum distance Sonic can lock onto the opponent
+    let maxLockOnDistance = 300; 
+
+    if (dist > 5 && dist <= maxLockOnDistance) {
+        // Normal tracking behavior when within range
+        this.x += (dx / dist) * 11;
+        this.y += (dy / dist) * 11;
+
+        let hitbox = { x: this.x - 8, y: this.y - 8, w: this.w + 16, h: this.h + 16 };
+        if (this.checkHitbox(hitbox, opponent)) {
+            opponent.takeDamage(2, (dx > 0 ? 3.5 : -3.5), -4.5);
+            this.actionState = "idle";
+            this.vy = -7;
+            this.vx = (dx > 0 ? -3 : 3);
+            this.attackCooldown = 40;
+        }
+    } else if (dist > maxLockOnDistance) {
+        // Nerfed behavior: Move slightly toward the center of the stage/platform (X: 400)
+        let stageCenterX = 400; 
+        let driftDirection = (this.x < stageCenterX) ? 1 : -1;
+        
+        this.x += driftDirection * 2; // Slow drift forward
+        this.y += 1;                  // Slight downward fall after the initial rise
+        
+        // Optional: Cancel homing state after drifting for a while or hitting the ground
+        if (this.y >= 500) { 
+            this.actionState = "idle";
+        }
+    }
+}
+
                         
                         if (this.stateTimer <= 0) {
                             this.actionState = "idle";
