@@ -445,10 +445,10 @@
                     if (inputs.jump && !this.upSpecialUsed) {
                         // UP SPECIAL: Sonic Spring Jump
                         this.actionState = "upSpecial";
-                        this.vy = -10; 
+                        this.vy = -13; 
                         this.vx = (inputs.left ? -2 : inputs.right ? 2 : 0);
                         this.upSpecialUsed = true;
-                        this.attackCooldown = 0.1;
+                        this.attackCooldown = 45;
                         
                         game.spawnSpring(this.x + this.w/2 - 10, this.y + this.h);
                     } else if (inputs.left || inputs.right) {
