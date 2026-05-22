@@ -423,7 +423,7 @@
                         // SIDE SPECIAL: Cape
                         this.actionState = "sideSpecial";
                         this.stateTimer = 18;
-                        this.attackCooldown = 25;
+                        this.attackCooldown = 50;
                         this.vx = this.facing * 2.5; 
                     } else {
                         // NEUTRAL SPECIAL: Fireball
@@ -479,8 +479,8 @@
                 this.percent += amount;
                 this.updateUI();
 
-                // KNOCKBACK REDUCED%: Scaling multiplier factor cut down from 0.65 to 0.123 lol
-                const multiplier = 1 + (this.percent / 100) * 0.123;
+                // KNOCKBACK REDUCED%: Scaling multiplier factor cut down from 0.65 to 0.279 lol
+                const multiplier = 1 + (this.percent / 100) * 0.279;
                 this.vx = kbX * multiplier;
                 this.vy = kbY * multiplier;
                 this.hitStun = Math.floor(12 * multiplier);
