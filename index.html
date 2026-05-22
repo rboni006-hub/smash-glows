@@ -240,7 +240,7 @@
 
                         let hitbox = { x: this.x - 5, y: this.y - 5, w: this.w + 10, h: this.h + 10 };
                         if (this.checkHitbox(hitbox, opponent)) {
-                            let dmg = 4 + Math.floor(chargeRatio * 5);
+                            let dmg = 4 + Math.floor(chargeRatio * 7);
                             let kbX = 2.0 + (chargeRatio * 2.0);
                             opponent.takeDamage(dmg, kbX * this.facing, -3);
                             
@@ -304,7 +304,7 @@
                     if (this.name === "Mario" && this.actionState === "upSpecial") {
                         let hitbox = { x: this.x - 5, y: this.y - 15, w: this.w + 10, h: 25 };
                         if (this.checkHitbox(hitbox, opponent)) {
-                            opponent.takeDamage(8, this.facing * 2.5, -5);
+                            opponent.takeDamage(3, this.facing * 2.5, -5);
                         }
                     }
 
@@ -343,7 +343,7 @@
                         checkFireballPlat(stage.platM);
 
                         if (this.checkHitbox(f, opponent)) {
-                            opponent.takeDamage(4, f.vx > 0 ? 1.5 : -1.5, -1.5);
+                            opponent.takeDamage(2, f.vx > 0 ? 1.5 : -1.5, -1.5);
                             this.fireballs.splice(i, 1);
                             continue;
                         }
@@ -415,7 +415,7 @@
                     if (inputs.jump && !this.upSpecialUsed) {
                         // UP SPECIAL: Super Jump Punch
                         this.actionState = "upSpecial";
-                        this.vy = -12;
+                        this.vy = -10;
                         this.vx = this.facing * 3;
                         this.upSpecialUsed = true;
                         this.attackCooldown = 40;
@@ -479,8 +479,8 @@
                 this.percent += amount;
                 this.updateUI();
 
-                // KNOCKBACK REDUCED%: Scaling multiplier factor cut down from 0.65 to 0.279 lol
-                const multiplier = 1 + (this.percent / 100) * 0.279;
+                // KNOCKBACK REDUCED%: Scaling multiplier factor cut up from 0.65 to 0.70 lol
+                const multiplier = 1 + (this.percent / 100) * 0.70;
                 this.vx = kbX * multiplier;
                 this.vy = kbY * multiplier;
                 this.hitStun = Math.floor(12 * multiplier);
