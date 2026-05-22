@@ -78,7 +78,7 @@
         const ctx = canvas.getContext("2d");
 
         // Physics constants
-        const GRAVITY = 0.35;
+        const GRAVITY = 0.85;
         const FRICTION = 0.85;
 
         // Stage Layout (Battlefield - All Solid Black)
@@ -126,7 +126,7 @@
                 this.spinDashMaxCharge = 60;
                 this.sonicColor = color;
                 this.upSpecialUsed = false; 
-                this.platformDropTimer = 0; // Lock collision briefly when dropping down
+                this.platformDropTimer = 10; // Lock collision briefly when dropping down
             }
 
             resetPosition() {
@@ -181,7 +181,7 @@
                     
                     // Handle Platform Dropping Mechanic
                     if (inputs.down && this.isGrounded && this.platformDropTimer === 0) {
-                        this.platformDropTimer = 15; // Ignore platform checks for 15 frames
+                        this.platformDropTimer = 40; // Ignore platform checks for 15 frames
                         this.y += 5; // Nudge downward out of grounding range
                         this.isGrounded = false;
                     }
@@ -359,7 +359,7 @@
                 if (this.x < -80 || this.x > canvas.width + 80 || this.y < -80 || this.y > canvas.height + 80) {
                     this.lives--;
                     if (this.lives <= 0) {
-                        alert(`${opponent.name} Wins! Game Over.`);
+                        alert(`${opponent.name} winzzzzzz, yay.`);
                         location.reload();
                     } else {
                         this.resetPosition();
@@ -393,8 +393,8 @@
 
             usePunch(opponent) {
                 this.actionState = "punch";
-                this.stateTimer = 12;
-                this.attackCooldown = 2;
+                this.stateTimer = 30;
+                this.attackCooldown = 0.4;
 
                 let hitbox = {
                     x: this.facing === 1 ? this.x + this.w : this.x - 22,
@@ -479,8 +479,8 @@
                 this.percent += amount;
                 this.updateUI();
 
-                // KNOCKBACK REDUCED%: Scaling multiplier factor cut down from 0.65 to 0.279 lol
-                const multiplier = 1 + (this.percent / 100) * 0.279;
+                // KNOCKBACK REDUCED%: Scaling multiplier factor cut up to 1.03
+                const multiplier = 1 + (this.percent / 100) * 0.1.03;
                 this.vx = kbX * multiplier;
                 this.vy = kbY * multiplier;
                 this.hitStun = Math.floor(12 * multiplier);
@@ -492,7 +492,7 @@
             draw() {
                 // Draw Mario Fireballs
                 if (this.name === "Mario") {
-                    ctx.fillStyle = "#ff4500";
+                    ctx.fillStyle = "#fc861e";
                     this.fireballs.forEach(f => {
                         ctx.beginPath();
                         ctx.arc(f.x + f.w/2, f.y + f.h/2, f.w/2, 0, Math.PI * 2);
